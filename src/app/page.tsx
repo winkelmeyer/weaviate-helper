@@ -1,106 +1,130 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Upload, FileText } from "lucide-react";
-import axios from 'axios';
-
-interface Document {
-  properties: {
-    filename: string;
-    uploadDate: string;
-  };
-}
+import { useState } from 'react';
+import { DocumentList } from '@/components/DocumentList';
 
 export default function Home() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  const fetchDocuments = async () => {
-    try {
-      const response = await axios.get('/api/documents');
-      setDocuments(response.data);
-    } catch (error) {
-      console.error('Error fetching documents:', error);
-    }
-  };
-
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      setSelectedFile(event.target.files[0]);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setFiles(Array.from(e.target.files));
     }
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    if (files.length === 0) {
+      setMessage({ text: 'Please select files to upload', type: 'error' });
+      return;
+    }
 
-    const formData = new FormData();
-    formData.append('file', selectedFile);
+    setUploading(true);
+    setMessage(null);
 
     try {
-      await axios.post('/api/upload', formData);
-      setSelectedFile(null);
-      fetchDocuments();
+      const documents = await Promise.all(
+        files.map(async (file) => {
+          const text = await file.text();
+          return {
+            fileName: file.name,
+            content: text,
+            mimeType: file.type,
+            size: file.size,
+            uploadedAt: new Date().toISOString()
+          };
+        })
+      );
+
+      const response = await fetch('/api/documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(documents)
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      setMessage({ text: 'Files uploaded successfully!', type: 'success' });
+      setFiles([]);
     } catch (error) {
-      console.error('Error uploading file:', error);
+      setMessage({ text: 'Failed to upload files. Please try again.', type: 'error' });
+      console.error('Upload error:', error);
+    } finally {
+      setUploading(false);
     }
   };
 
-  return (
-    <main className="container mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-8">Document Vectorization System</h1>
+    return (
+        <main className="min-h-screen p-8">
+            <div className="max-w-7xl mx-auto">
+                <h1 className="text-3xl font-bold mb-8">Document Upload</h1>
+                
+                <div className="grid gap-8">
+                    <div className="space-y-4">
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                            <input
+                                type="file"
+                                multiple
+                                onChange={handleFileChange}
+                                className="hidden"
+                                id="fileInput"
+                                accept=".txt,.pdf,.doc,.docx"
+                            />
+                            <label
+                                htmlFor="fileInput"
+                                className="cursor-pointer text-blue-500 hover:text-blue-600"
+                            >
+                                Click to select files or drag them here
+                            </label>
+                            
+                            {files.length > 0 && (
+                                <div className="mt-4">
+                                    <p className="font-semibold">Selected files:</p>
+                                    <ul className="mt-2 text-sm">
+                                        {files.map((file, index) => (
+                                            <li key={index} className="text-gray-600">
+                                                {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
 
-      <Card className="mb-8">
-        <CardContent className="pt-6">
-          <div className="flex flex-col items-center gap-4">
-            <Input
-              type="file"
-              accept=".txt,.pdf,.doc,.docx"
-              onChange={handleFileSelect}
-              className="max-w-[300px]"
-            />
-            {selectedFile && (
-              <div className="flex flex-col items-center gap-2">
-                <p className="text-sm text-gray-600">
-                  Selected: {selectedFile.name}
-                </p>
-                <Button onClick={handleUpload}>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload and Vectorize
-                </Button>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+                        <button
+                            onClick={handleUpload}
+                            disabled={uploading || files.length === 0}
+                            className={`w-full py-2 px-4 rounded-md text-white font-medium ${
+                                uploading || files.length === 0
+                                    ? 'bg-gray-400 cursor-not-allowed'
+                                    : 'bg-blue-500 hover:bg-blue-600'
+                            }`}
+                        >
+                            {uploading ? 'Uploading...' : 'Upload Files'}
+                        </button>
 
-      <h2 className="text-2xl font-semibold mb-4">Uploaded Documents</h2>
-      <Card>
-        <CardContent className="pt-6">
-          <div className="space-y-4">
-            {documents.map((doc, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-3 p-3 border-b last:border-b-0"
-              >
-                <FileText className="h-5 w-5 text-gray-500" />
-                <div>
-                  <p className="font-medium">{doc.properties.filename}</p>
-                  <p className="text-sm text-gray-600">
-                    {new Date(doc.properties.uploadDate).toLocaleString()}
-                  </p>
+                        {message && (
+                            <div
+                                className={`p-4 rounded-md ${
+                                    message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                }`}
+                            >
+                                {message.text}
+                            </div>
+                        )}
+                    </div>
+
+                    <div>
+                        <h2 className="text-2xl font-bold mb-4">Uploaded Documents</h2>
+                        <DocumentList />
+                    </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </main>
+            </div>
+        </main>
   );
 } 
